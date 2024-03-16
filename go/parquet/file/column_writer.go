@@ -76,6 +76,8 @@ type ColumnChunkWriter interface {
 	LevelInfo() LevelInfo
 	SetBitsBuffer(*memory.Buffer)
 	HasBitsBuffer() bool
+
+	FlushCurrentPage() error
 }
 
 func computeLevelInfo(descr *schema.Column) (info LevelInfo) {
@@ -264,6 +266,10 @@ func (w *columnWriter) FlushCurrentPage() error {
 		defLevelsRLESize int32 = 0
 		repLevelsRLESize int32 = 0
 	)
+
+	if w.numBufferedValues == 0 {
+		return nil
+	}
 
 	values, err := w.currentEncoder.FlushValues()
 	if err != nil {

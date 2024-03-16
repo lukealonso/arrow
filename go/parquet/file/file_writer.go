@@ -20,6 +20,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/apache/arrow/go/v15/parquet"
 	"github.com/apache/arrow/go/v15/parquet/internal/encryption"
@@ -30,6 +31,7 @@ import (
 
 // Writer is the primary interface for writing a parquet file
 type Writer struct {
+	m              sync.Mutex
 	sink           utils.WriteCloserTell
 	open           bool
 	props          *parquet.WriterProperties
@@ -128,6 +130,20 @@ func (fw *Writer) appendRowGroup(buffered bool) *rowGroupWriter {
 	rgMeta := fw.metadata.AppendRowGroup()
 	fw.rowGroupWriter = newRowGroupWriter(fw.sink, rgMeta, int16(fw.rowGroups)-1, fw.props, buffered, fw.fileEncryptor)
 	return fw.rowGroupWriter
+}
+
+func (fw *Writer) AppendBufferedRowGroupNV() (BufferedRowGroupWriter, func() error) {
+	fw.m.Lock()
+	defer fw.m.Unlock()
+	fw.rowGroups++
+	rgMeta, closer := fw.metadata.AppendRowGroupNV()
+	rgw := newRowGroupWriter(fw.sink, rgMeta, int16(fw.rowGroups)-1, fw.props, true, fw.fileEncryptor)
+	return rgw, func() error {
+		fw.m.Lock()
+		defer fw.m.Unlock()
+		closer()
+		return rgw.Close()
+	}
 }
 
 func (fw *Writer) startFile() {

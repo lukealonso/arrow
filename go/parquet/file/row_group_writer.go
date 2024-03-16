@@ -43,6 +43,8 @@ type RowGroupWriter interface {
 	// Buffered returns true if it's a BufferedRowGroupWriter and false for a
 	// SerialRowGroupWriter
 	Buffered() bool
+
+	FlushNV() error
 }
 
 // SerialRowGroupWriter expects each column to be written one after the other,
@@ -225,6 +227,17 @@ func (rg *rowGroupWriter) Close() error {
 		rg.columnWriters = nil
 		rg.metadata.SetNumRows(rg.nrows)
 		rg.metadata.Finish(rg.bytesWritten, rg.ordinal)
+	}
+	return nil
+}
+
+func (rg *rowGroupWriter) FlushNV() error {
+	for _, wr := range rg.columnWriters {
+		if wr != nil {
+			if err := wr.FlushCurrentPage(); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

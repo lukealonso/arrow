@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/apache/arrow/go/v15/parquet"
@@ -40,11 +41,11 @@ var DefaultCompressionType = compress.Codecs.Uncompressed
 // FileMetaDataBuilder is a proxy for more easily constructing file metadata
 // particularly used when writing a file out.
 type FileMetaDataBuilder struct {
+	m              sync.Mutex
 	metadata       *format.FileMetaData
 	props          *parquet.WriterProperties
 	schema         *schema.Schema
 	rowGroups      []*format.RowGroup
-	currentRgBldr  *RowGroupMetaDataBuilder
 	kvmeta         KeyValueMetadata
 	cryptoMetadata *format.FileCryptoMetaData
 }
@@ -91,8 +92,21 @@ func (f *FileMetaDataBuilder) AppendRowGroup() *RowGroupMetaDataBuilder {
 
 	rg := format.NewRowGroup()
 	f.rowGroups = append(f.rowGroups, rg)
-	f.currentRgBldr = NewRowGroupMetaDataBuilder(f.props, f.schema, rg)
-	return f.currentRgBldr
+	return NewRowGroupMetaDataBuilder(f.props, f.schema, rg)
+}
+
+func (f *FileMetaDataBuilder) AppendRowGroupNV() (*RowGroupMetaDataBuilder, func()) {
+	if f.rowGroups == nil {
+		f.rowGroups = make([]*format.RowGroup, 0, 1)
+	}
+
+	rg := format.NewRowGroup()
+	rgBldr := NewRowGroupMetaDataBuilder(f.props, f.schema, rg)
+	return rgBldr, func() {
+		f.m.Lock()
+		defer f.m.Unlock()
+		f.rowGroups = append(f.rowGroups, rg)
+	}
 }
 
 // AppendKeyValueMetadata appends a key/value pair to the existing key/value metadata
